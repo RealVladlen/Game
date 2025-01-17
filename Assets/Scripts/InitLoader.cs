@@ -1,4 +1,3 @@
-using System;
 using System.Collections;
 using System.IO;
 using DG.Tweening;
@@ -6,12 +5,20 @@ using UIAnimations;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
+using UnityEngine.Networking;
 
 public class InitLoader : MonoBehaviour
 {
     public static InitLoader Instance;
     
     [SerializeField] private Slider progressBar;
+
+    [SerializeField] private bool urlLoading;
+    
+    [Header("URL loading")]
+    [SerializeField] private string settingsUrl;
+    [SerializeField] private string messageUrl;
+    [SerializeField] private string assetBundleUrl;
 
     private string _settingsJson;
     private string _messageJson;
@@ -64,6 +71,12 @@ public class InitLoader : MonoBehaviour
 
     private IEnumerator LoadJsonFiles()
     {
+        if (urlLoading)
+        {
+            yield return DownloadFile(settingsUrl, Path.Combine(Application.streamingAssetsPath, "Settings.json"));
+            yield return DownloadFile(messageUrl, Path.Combine(Application.streamingAssetsPath, "WelcomeMessage.json"));
+        }
+        
         _settingsJson = CheckJsonFile("Settings.json");
         progressBar.value = 0.1f;
         
@@ -97,7 +110,18 @@ public class InitLoader : MonoBehaviour
         if (_assetBundle != null)
             _assetBundle.Unload(false);
         
-        _assetBundle = AssetBundle.LoadFromFile("Assets/AssetBundles/Output/buttonbundle");
+        if (urlLoading)
+        {
+            UnityWebRequest request = UnityWebRequestAssetBundle.GetAssetBundle(assetBundleUrl);
+            yield return request.SendWebRequest();
+            if (request.result != UnityWebRequest.Result.Success)
+                Debug.LogError($"Не удалось загрузить: {request.error}");
+            
+            else
+                _assetBundle = DownloadHandlerAssetBundle.GetContent(request);
+        }
+        else
+            _assetBundle = AssetBundle.LoadFromFile("Assets/AssetBundles/Output/buttonbundle");
         
         currentProgress += 20f;
         progressBar.value = currentProgress / 100f;
@@ -106,6 +130,7 @@ public class InitLoader : MonoBehaviour
             Debug.Log("Asset Bundles загружены.");
         else
             Debug.LogError("Не удалось загрузить AssetBundle!");
+        
         yield return null;
     }
     
@@ -136,6 +161,18 @@ public class InitLoader : MonoBehaviour
         SceneManager.SetActiveScene(SceneManager.GetSceneByName(mainSceneName));
     }
 
+    private IEnumerator DownloadFile(string url, string savePath)
+    {
+        UnityWebRequest request = UnityWebRequest.Get(url);
+        yield return request.SendWebRequest();
+
+        if (request.result != UnityWebRequest.Result.Success)
+            Debug.LogError($"Не удалось загрузить {url}: {request.error}");
+        
+        else
+            File.WriteAllText(savePath, request.downloadHandler.text);
+    }
+    
     private void OnDestroy()
     {
         if (_assetBundle != null)
