@@ -1,5 +1,5 @@
+using System;
 using System.Collections;
-using System.Collections.Generic;
 using System.IO;
 using DG.Tweening;
 using UIAnimations;
@@ -9,21 +9,48 @@ using UnityEngine.UI;
 
 public class InitLoader : MonoBehaviour
 {
+    public static InitLoader Instance;
+    
     [SerializeField] private Slider progressBar;
-    [SerializeField] private List<string> jsonFileNames;
-    [SerializeField] private string assetBundleDirectory = "AssetBundles/Output";
+
+    private string _settingsJson;
+    private string _messageJson;
+    private AssetBundle _assetBundle;
+
+    public string GetSettingsJson() => _settingsJson;
+    public string GetMessageJson() => _messageJson;
+    public AssetBundle GetAssetBundle() => _assetBundle;
+    
+    private void Awake()
+    {
+        if (Instance) Destroy(gameObject);
+        else Instance = this;
+    }
 
     private void Start()
     {
         StartCoroutine(LoadResources());
     }
 
-    private IEnumerator LoadResources()
+    public IEnumerator UpdateResources()
     {
         Debug.Log("Загрузка ресурсов началась...");
 
         yield return LoadJsonFiles();
         yield return LoadAssetBundles();
+
+        Debug.Log("Все ресурсы обновлены.");
+    }
+    
+    private IEnumerator LoadResources()
+    {
+        Debug.Log("Загрузка ресурсов началась...");
+
+        yield return new WaitForSeconds(0.5f);
+        yield return LoadJsonFiles();
+        yield return new WaitForSeconds(1f);
+        yield return LoadAssetBundles();
+        yield return new WaitForSeconds(1f);
         yield return LoadMainSceneAdditiveAsync();
 
         Debug.Log("Все ресурсы загружены. Переход на основную сцену завершён.");
@@ -37,60 +64,49 @@ public class InitLoader : MonoBehaviour
 
     private IEnumerator LoadJsonFiles()
     {
-        float progressStep = 20f / jsonFileNames.Count;
-        float currentProgress = 0f;
-
-        foreach (var t in jsonFileNames)
-        {
-            string fileName = $"{t}.json";
-            string settingsPath = Path.Combine(Application.streamingAssetsPath, fileName);
-
-            if (File.Exists(settingsPath))
-            {
-                string json = File.ReadAllText(settingsPath);
-                Debug.Log($"Файл найден: {fileName}, Содержимое: {json}");
-            }
-            else
-                Debug.LogError($"Файл {fileName} не найден в {Application.streamingAssetsPath}.");
-
-            currentProgress += progressStep;
-            progressBar.value = currentProgress / 100f;
-
-            yield return new WaitForSeconds(0.5f);
-        }
+        _settingsJson = CheckJsonFile("Settings.json");
+        progressBar.value = 0.1f;
+        
+        _messageJson = CheckJsonFile("WelcomeMessage.json");
+        progressBar.value = 0.2f;
 
         Debug.Log("JSON-файлы загружены.");
+        yield return null;
     }
 
+    private string CheckJsonFile(string nameFile)
+    {
+        string path = Path.Combine(Application.streamingAssetsPath, nameFile);
+        
+        if (File.Exists(path))
+        {
+            string json = File.ReadAllText(path);
+            Debug.Log($"Файл найден: {nameFile}, Содержимое: {json}");
+            
+            return json;
+        }
+
+        Debug.LogError($"Файл {nameFile} не найден в {Application.streamingAssetsPath}.");
+        return null;
+    }
+    
     private IEnumerator LoadAssetBundles()
     {
         float currentProgress = 20f;
-
-        string fullPath = Path.Combine(Application.dataPath, assetBundleDirectory);
-
-        if (Directory.Exists(fullPath))
-        {
-            string[] files = Directory.GetFiles(fullPath);
-
-            if (files.Length > 0)
-            {
-                Debug.Log($"Найдено {files.Length} Asset Bundle файлов в {fullPath}: ");
-                foreach (string file in files)
-                
-                    Debug.Log($"- {Path.GetFileName(file)}");
-            }
-            else
-                Debug.LogWarning($"Директория {fullPath} существует, но в ней нет файлов.");
-        }
-        else
-            Debug.LogError($"Директория {fullPath} не найдена. Убедитесь, что Asset Bundles созданы.");
-
+        
+        if (_assetBundle != null)
+            _assetBundle.Unload(false);
+        
+        _assetBundle = AssetBundle.LoadFromFile("Assets/AssetBundles/Output/buttonbundle");
+        
         currentProgress += 20f;
         progressBar.value = currentProgress / 100f;
 
-        yield return new WaitForSeconds(1);
-
-        Debug.Log("Asset Bundles загружены.");
+        if (_assetBundle != null)
+            Debug.Log("Asset Bundles загружены.");
+        else
+            Debug.LogError("Не удалось загрузить AssetBundle!");
+        yield return null;
     }
     
     private IEnumerator LoadMainSceneAdditiveAsync()
@@ -104,7 +120,7 @@ public class InitLoader : MonoBehaviour
         {
             float realProgress = 40f + Mathf.Clamp01(asyncLoad.progress / 0.9f) * 60f;
 
-            simulatedProgress = Mathf.MoveTowards(simulatedProgress, realProgress, Time.deltaTime * 10f);
+            simulatedProgress = Mathf.MoveTowards(simulatedProgress, realProgress, Time.deltaTime * UnityEngine.Random.Range(0.1f,20f));
             progressBar.value = simulatedProgress / 100f;
 
             if (asyncLoad.progress >= 0.9f && simulatedProgress >= 100f)
@@ -119,28 +135,10 @@ public class InitLoader : MonoBehaviour
         Debug.Log("Основная сцена загружена в режиме Additive.");
         SceneManager.SetActiveScene(SceneManager.GetSceneByName(mainSceneName));
     }
-    
-    private IEnumerator LoadMainSceneAsync()
+
+    private void OnDestroy()
     {
-        AsyncOperation asyncLoad = SceneManager.LoadSceneAsync("MainScene");
-        asyncLoad.allowSceneActivation = false;
-
-        while (!asyncLoad.isDone)
-        {
-            float progress = 40f + Mathf.Clamp01(asyncLoad.progress / 0.9f) * 60f;
-            progressBar.value = progress / 100f;
-
-            yield return new WaitForSeconds(0.1f);
-            
-            if (asyncLoad.progress >= 0.9f)
-            {
-                Debug.Log("Основная сцена почти загружена.");
-                asyncLoad.allowSceneActivation = true;
-            }
-
-            yield return null;
-        }
-        
-        yield return new WaitForSeconds(1f);
+        if (_assetBundle != null)
+            _assetBundle.Unload(false);
     }
 }
